@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+
+# Data (runtime-generated; vendored resources are excepted below)
+data/*
+!data/de_frequency_top1000.txt
+backups/
+bin/
+
+# Agent working memory (see .cursor/skills/filesystem-as-memory/SKILL.md)
+.agent/
+AGENT.md
+CLAUDE.md
+ROADMAP.md
+PIVOT_ROADMAP.md
+Design_Gap.md
+KaggleCompetition.md
+
+# MOCKUP
+lesekamerad_mockup.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+.cursor/

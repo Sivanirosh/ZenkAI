@@ -1,0 +1,101 @@
+-- Lesekamerad DuckDB schema (source of truth).
+-- Migrations are append-only ALTER TABLE statements at the bottom of this file.
+
+CREATE TABLE IF NOT EXISTS works (
+    id           VARCHAR PRIMARY KEY,
+    title        VARCHAR NOT NULL,
+    author       VARCHAR NOT NULL,
+    epoch        VARCHAR,
+    year         INTEGER,
+    gutenberg_id INTEGER,
+    language     VARCHAR DEFAULT 'de',
+    spine_color  VARCHAR,
+    epoch_color  VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS paragraphs (
+    id         VARCHAR PRIMARY KEY,
+    work_id    VARCHAR REFERENCES works(id),
+    chapter    INTEGER,
+    position   INTEGER,
+    text       TEXT NOT NULL,
+    word_count INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS words (
+    id            VARCHAR PRIMARY KEY,
+    lemma         VARCHAR NOT NULL,
+    pos           VARCHAR,
+    gender        VARCHAR,
+    plural_form   VARCHAR,
+    etymology     TEXT,
+    definition_de TEXT,
+    definition_en TEXT
+);
+
+CREATE TABLE IF NOT EXISTS word_occurrences (
+    id               VARCHAR PRIMARY KEY,
+    paragraph_id     VARCHAR REFERENCES paragraphs(id),
+    word_id          VARCHAR REFERENCES words(id),
+    surface_form     VARCHAR NOT NULL,
+    position         INTEGER,
+    case_label       VARCHAR,
+    grammatical_role VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS word_states (
+    word_id     VARCHAR PRIMARY KEY REFERENCES words(id),
+    familiarity INTEGER DEFAULT 0,
+    ease_factor FLOAT DEFAULT 2.5,
+    interval    INTEGER DEFAULT 1,
+    next_review TIMESTAMP,
+    seen_count  INTEGER DEFAULT 0,
+    last_seen   TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id                VARCHAR PRIMARY KEY,
+    work_id           VARCHAR REFERENCES works(id),
+    started_at        TIMESTAMP DEFAULT now(),
+    ended_at          TIMESTAMP,
+    paragraphs_read   INTEGER DEFAULT 0,
+    words_encountered INTEGER DEFAULT 0,
+    words_promoted    INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_paragraphs_work_chapter
+    ON paragraphs(work_id, chapter, position);
+CREATE INDEX IF NOT EXISTS idx_occurrences_paragraph
+    ON word_occurrences(paragraph_id, position);
+CREATE INDEX IF NOT EXISTS idx_occurrences_word
+    ON word_occurrences(word_id);
+
+-- Migrations (append below, never edit above). Each ALTER is idempotent.
+-- Example:
+-- ALTER TABLE words ADD COLUMN IF NOT EXISTS frequency_band INTEGER;
+
+-- 2026-04: per-word character offsets in paragraphs.text. These make the
+-- reader render with correct punctuation (paragraphs.text is the single
+-- source of truth) and enable O(N) offset-based slicing without re-running
+-- spaCy at serve time.
+ALTER TABLE word_occurrences ADD COLUMN IF NOT EXISTS char_start INTEGER;
+ALTER TABLE word_occurrences ADD COLUMN IF NOT EXISTS char_end   INTEGER;
+CREATE INDEX IF NOT EXISTS idx_occurrences_paragraph_start
+    ON word_occurrences(paragraph_id, char_start);
+
+-- 2026-04: vocabulary harvester. External SRS owns scheduling (decision
+-- 0001), so word_states SRS columns (ease_factor, interval, next_review,
+-- seen_count) are deprecated and preserved for one migration cycle.
+-- vocab_queue is the new authoritative state for the reader UI.
+CREATE TABLE IF NOT EXISTS vocab_queue (
+    word_id            VARCHAR PRIMARY KEY REFERENCES words(id),
+    status             VARCHAR NOT NULL,            -- 'queued' | 'known' | 'exported'
+    source_paragraph   VARCHAR REFERENCES paragraphs(id),
+    source_sentence    TEXT,
+    added_at           TIMESTAMP DEFAULT now(),
+    exported_at        TIMESTAMP,
+    question_override  TEXT,
+    answer_override    TEXT,
+    extra_tags         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vocab_queue_status ON vocab_queue(status);
