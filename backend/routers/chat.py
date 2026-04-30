@@ -45,6 +45,12 @@ async def chat_message(req: ChatRequest) -> StreamingResponse:
         )
 
     async def gen() -> AsyncIterator[str]:
+        # The terminal ``done`` event is emitted from each explicit completion
+        # path below, NOT from a ``finally`` block — yielding inside ``finally``
+        # while a ``GeneratorExit`` is propagating raises
+        # ``RuntimeError: async generator ignored GeneratorExit`` on every
+        # client disconnect. See backend/llm/ollama.chat_with_tools and
+        # backend/agent/controller.turn for the matching discipline.
         try:
             async for chunk in llm_service.stream_answer(
                 question=question,
@@ -58,8 +64,8 @@ async def chat_message(req: ChatRequest) -> StreamingResponse:
                 "error",
                 {"detail": "stream failed", "message": str(exc)},
             )
-        finally:
-            yield _sse("done", {})
+
+        yield _sse("done", {})
 
     return StreamingResponse(
         gen(),

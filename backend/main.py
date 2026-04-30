@@ -15,7 +15,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import get_settings
 from backend.models import db
-from backend.routers import admin, annotations, chat, corpus, vocab, voice, words
+from backend.routers import (
+    admin,
+    agent,
+    annotations,
+    capture,
+    chat,
+    conversation,
+    corpus,
+    onboarding,
+    vocab,
+    voice,
+    words,
+)
 from backend.services import llm_service, stt_service, tts_service
 
 
@@ -90,6 +102,18 @@ def create_app() -> FastAPI:
     )
     app.include_router(voice.router, prefix=f"{prefix}/voice", tags=["voice"])
     app.include_router(chat.router, prefix=f"{prefix}/chat", tags=["chat"])
+    app.include_router(agent.router, prefix=f"{prefix}/agent", tags=["agent"])
+    app.include_router(
+        onboarding.router, prefix=f"{prefix}/onboarding", tags=["onboarding"]
+    )
+    app.include_router(
+        conversation.router,
+        prefix=f"{prefix}/conversation",
+        tags=["conversation"],
+    )
+    app.include_router(
+        capture.router, prefix=f"{prefix}/capture", tags=["capture"]
+    )
     app.include_router(admin.router, prefix=f"{prefix}/admin", tags=["admin"])
 
     @app.get("/health", tags=["meta"])

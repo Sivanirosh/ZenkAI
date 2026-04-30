@@ -91,3 +91,96 @@ async def _installed_models() -> list[str]:
         resp.raise_for_status()
         data = resp.json()
     return [m.get("name") for m in data.get("models", []) if m.get("name")]
+
+
+@router.get("/agent/health")
+async def get_agent_health() -> dict:
+    """Quick check the frontend can render as a 'tier badge' next to Mira.
+
+    Returns the active provider, the model that will run the next turn, and
+    whether tool calling is supported. Tool calling is hard-coded ``true``
+    because we only ship providers that support it; switching to a no-tools
+    fallback would change this flag.
+    """
+    options = get_llm_options()
+    return {
+        "provider": "ollama",
+        "model": options.model,
+        "tool_calling_supported": True,
+    }
+
+
+@router.post("/sessions/{session_id}/close")
+async def close_session(session_id: str) -> dict:
+    """Force-close a Mira session.
+
+    Flushes the JSONL buffer, snapshots ``mastery.parquet`` atomically,
+    and appends to the session index. Used by the milestone demo and by
+    the frontend's "end session" button.
+    """
+    from backend.memory import get_memory  # local import to keep router cold-start light
+
+    memory = get_memory()
+    memory.close_session(session_id)
+    return {"session_id": session_id, "closed": True}
+
+
+class EvidencePayload(BaseModel):
+    competency_id: str = Field(min_length=1)
+    quality: float = Field(ge=0.0, le=1.0)
+    surface_form: Optional[str] = None
+    notes: Optional[str] = None
+    source: str = Field(default="agent_post")
+
+
+@router.post("/evidence")
+async def write_evidence(payload: EvidencePayload) -> dict:
+    """Append one evidence event (PIVOT_ROADMAP §B.13/§B.14 demo surface).
+
+    Exposed so the milestone demo and the future "I read this" button
+    can drive ``mastery.update`` without owning the DuckDB connection.
+    The same write path triggers the factsheet writer and vector index.
+    """
+    from backend.mastery import model as mastery_model  # noqa: WPS433
+
+    try:
+        row = mastery_model.update(
+            payload.competency_id,
+            payload.quality,
+            source=payload.source,
+            surface_form=payload.surface_form,
+            notes=payload.notes,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "competency_id": row.competency_id,
+        "confidence": row.confidence,
+        "variance": row.variance,
+        "evidence_count": row.evidence_count,
+    }
+
+
+class CompactPayload(BaseModel):
+    deadline_ms: int = Field(default=30_000, ge=500, le=300_000)
+
+
+@router.post("/memory/compact")
+async def compact_memory(payload: Optional[CompactPayload] = None) -> dict:
+    """Run one idempotent compaction pass against the live memory root.
+
+    Returns the ``CompactionReport`` (see backend/memory/compactor.py).
+    Returns 423 (locked) if another compactor is currently running so
+    the caller knows to retry later instead of treating the response
+    as success.
+    """
+    from backend.memory import get_memory  # local import keeps cold-start light
+    from backend.memory.compactor import CompactionLockedError
+
+    body = payload or CompactPayload()
+    memory = get_memory()
+    try:
+        report = memory.compact(deadline_ms=body.deadline_ms)
+    except CompactionLockedError as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    return report.to_dict()

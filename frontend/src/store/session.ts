@@ -49,6 +49,11 @@ interface SessionState {
   epochFilter: string | null
   selectedWord: SelectedWord | null
 
+  // Onboarding (PIVOT_ROADMAP §B.1) — null until the learner submits a goal.
+  goalId: string | null
+  planId: string | null
+  hasGoal: boolean
+
   wordFamiliarity: Record<string, number>
 
   // Vocab harvester status map (decision 0001). Absence = 'new'.
@@ -82,6 +87,10 @@ interface SessionState {
 
   setVocabStatus: (wordId: string, status: VocabStatus | null) => void
   bulkSetVocabStatus: (entries: Record<string, VocabStatus>) => void
+
+  setOnboarding: (
+    patch: { goalId?: string | null; planId?: string | null; hasGoal?: boolean },
+  ) => void
 
   setReaderPrefs: (patch: Partial<ReaderPrefs>) => void
   setPageScroll: (key: string, top: number) => void
@@ -121,11 +130,14 @@ const DEFAULT_READER_PREFS: ReaderPrefs = {
 export const useSession = create<SessionState>()(
   persist(
     (set) => ({
-      activeTab: 'lib',
+      activeTab: 'at',
       currentWorkId: null,
       currentParagraphId: null,
       epochFilter: null,
       selectedWord: null,
+      goalId: null,
+      planId: null,
+      hasGoal: false,
       wordFamiliarity: {},
       vocabStatus: {},
 
@@ -197,6 +209,13 @@ export const useSession = create<SessionState>()(
           vocabStatus: { ...state.vocabStatus, ...entries },
         })),
 
+      setOnboarding: (patch) =>
+        set((state) => ({
+          goalId: patch.goalId !== undefined ? patch.goalId : state.goalId,
+          planId: patch.planId !== undefined ? patch.planId : state.planId,
+          hasGoal: patch.hasGoal !== undefined ? patch.hasGoal : state.hasGoal,
+        })),
+
       setReaderPrefs: (patch) =>
         set((state) => ({
           readerPrefs: { ...state.readerPrefs, ...patch },
@@ -264,7 +283,7 @@ export const useSession = create<SessionState>()(
     {
       name: 'zenkai-session',
       storage: createJSONStorage(() => localStorage),
-      version: 2,
+      version: 4,
       // Persist navigation + reader prefs only. SWR caches stay volatile.
       partialize: (state) => ({
         activeTab: state.activeTab,
@@ -276,8 +295,12 @@ export const useSession = create<SessionState>()(
         lastScrollByPage: state.lastScrollByPage,
         wordFamiliarity: state.wordFamiliarity,
         vocabStatus: state.vocabStatus,
+        goalId: state.goalId,
+        planId: state.planId,
+        hasGoal: state.hasGoal,
       }),
       migrate: (persisted: unknown, version: number) => {
+        let next = persisted as Partial<SessionState>
         if (
           persisted &&
           typeof persisted === 'object' &&
@@ -286,12 +309,26 @@ export const useSession = create<SessionState>()(
         ) {
           const prev = (persisted as { readerPrefs: Partial<ReaderPrefs> })
             .readerPrefs
-          return {
+          next = {
             ...(persisted as object),
             readerPrefs: { ...DEFAULT_READER_PREFS, ...prev },
-          }
+          } as Partial<SessionState>
         }
-        return persisted as Partial<SessionState>
+        if (version < 3) {
+          next = { ...(next as object), activeTab: 'at' } as Partial<SessionState>
+        }
+        if (version < 4) {
+          // PIVOT_ROADMAP §B.1: introduce onboarding fields. Default to
+          // "no goal" so the shell forces the Onboarding screen on first
+          // paint after upgrading.
+          next = {
+            ...(next as object),
+            goalId: null,
+            planId: null,
+            hasGoal: false,
+          } as Partial<SessionState>
+        }
+        return next
       },
     },
   ),

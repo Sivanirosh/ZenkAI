@@ -2,13 +2,28 @@
 // Every call to `/api/v1/*` must go through this module (CLAUDE.md rule).
 
 import type {
+  AtlasPayload,
+  AtriumPayload,
+  CaptureRecentResponse,
+  CaptureResultPayload,
+  CaptureSurfaceKind,
   Chapter,
   ChatRequest,
+  KonversationRecentResponse,
+  KonversationTurnResponse,
+  MiraEvent,
+  MiraTurnRequest,
+  OnboardingGoalResponse,
+  OnboardingState,
   Paragraph,
   ParagraphWithTokens,
   ProgressSummary,
+  PronunciationScore,
   ServiceUnavailable,
   SttResponse,
+  ToolError,
+  ToolIntent,
+  ToolResult,
   VocabCounts,
   VocabEntry,
   VocabStatus,
@@ -401,6 +416,400 @@ export async function streamChat(
     if (!isAbort(err)) handlers.onError?.(err)
   } finally {
     handlers.onDone?.()
+  }
+}
+
+// ── Mira agent (Atrium + SSE turn) ─────────────────────
+
+export const getAtrium = (opts?: ApiOptions): Promise<AtriumPayload> =>
+  request<AtriumPayload>('/agent/atrium', opts)
+
+export const getAtlas = (opts?: ApiOptions): Promise<AtlasPayload> =>
+  request<AtlasPayload>('/agent/atlas', opts)
+
+// ── Onboarding (PIVOT_ROADMAP §B.1) ─────────────────────
+
+export const getOnboardingState = (
+  opts?: ApiOptions,
+): Promise<OnboardingState> =>
+  request<OnboardingState>('/onboarding/state', opts)
+
+export const submitOnboardingGoal = (
+  rawText: string,
+  horizon: string = '30d',
+): Promise<OnboardingGoalResponse> =>
+  request<OnboardingGoalResponse>('/onboarding/goal', {
+    method: 'POST',
+    body: JSON.stringify({ raw_text: rawText, horizon }),
+  })
+
+// ── Konversation (PIVOT_ROADMAP §B.5/§B.17) ────────────
+
+export interface KonversationTurnInput {
+  audio: Blob
+  sessionId: string
+  competencyId?: string | null
+  scenario?: string | null
+  targetCefr?: string | null
+  language?: string
+}
+
+export async function konversationTurn(
+  input: KonversationTurnInput,
+  opts: ApiOptions = {},
+): Promise<KonversationTurnResponse> {
+  const form = new FormData()
+  const filename = input.audio.type.includes('webm')
+    ? 'turn.webm'
+    : input.audio.type.includes('ogg')
+    ? 'turn.ogg'
+    : 'turn.wav'
+  form.append('audio', input.audio, filename)
+  form.append('session_id', input.sessionId)
+  if (input.competencyId) form.append('competency_id', input.competencyId)
+  if (input.scenario) form.append('scenario', input.scenario)
+  if (input.targetCefr) form.append('target_cefr', input.targetCefr)
+  if (input.language) form.append('language', input.language)
+  const response = await fetch(`${BASE}/conversation/turn`, {
+    method: 'POST',
+    body: form,
+    signal: opts.signal,
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new ApiError(
+      `${response.status} ${response.statusText}${text ? ` \u2014 ${text}` : ''}`,
+      response.status,
+    )
+  }
+  return (await response.json()) as KonversationTurnResponse
+}
+
+export const konversationRecent = (
+  limit = 20,
+  opts?: ApiOptions,
+): Promise<KonversationRecentResponse> =>
+  request<KonversationRecentResponse>(
+    `/conversation/recent?limit=${limit}`,
+    opts,
+  )
+
+// ── Konversation streaming (SSE) ────────────────────────
+
+export interface KonversationStreamHandlers {
+  /** Called as soon as STT finishes — show the user bubble immediately. */
+  onTranscribed: (t: KonversationTurnResponse['user_transcript']) => void
+  /** Each LLM token chunk — append to assistant bubble. */
+  onToken: (delta: string) => void
+  /** Stream is complete — full assistant text + metadata for TTS. */
+  onDone: (result: KonversationTurnResponse & { duration_ms: number }) => void
+  onError?: (err: unknown) => void
+  signal?: AbortSignal
+}
+
+export async function konversationStream(
+  input: KonversationTurnInput,
+  handlers: KonversationStreamHandlers,
+): Promise<void> {
+  const form = new FormData()
+  const filename = input.audio.type.includes('webm')
+    ? 'turn.webm'
+    : input.audio.type.includes('ogg')
+    ? 'turn.ogg'
+    : 'turn.wav'
+  form.append('audio', input.audio, filename)
+  form.append('session_id', input.sessionId)
+  if (input.competencyId) form.append('competency_id', input.competencyId)
+  if (input.scenario) form.append('scenario', input.scenario)
+  if (input.targetCefr) form.append('target_cefr', input.targetCefr)
+  if (input.language) form.append('language', input.language)
+
+  let response: Response
+  try {
+    response = await fetch(`${BASE}/conversation/stream`, {
+      method: 'POST',
+      body: form,
+      signal: handlers.signal,
+    })
+  } catch (err) {
+    if (isAbort(err)) return
+    handlers.onError?.(err)
+    return
+  }
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '')
+    handlers.onError?.(
+      new ApiError(
+        `${response.status} ${response.statusText}${text ? ` — ${text}` : ''}`,
+        response.status,
+      ),
+    )
+    return
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx: number
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        let eventName = 'message'
+        const dataLines: string[] = []
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim()
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+        }
+        if (dataLines.length === 0) continue
+        const raw = dataLines.join('\n')
+        try {
+          const parsed = JSON.parse(raw)
+          if (eventName === 'transcribed') {
+            handlers.onTranscribed(parsed)
+          } else if (eventName === 'token') {
+            if (parsed.delta) handlers.onToken(parsed.delta as string)
+          } else if (eventName === 'done') {
+            reader.cancel().catch(() => undefined)
+            handlers.onDone(parsed)
+            return
+          }
+        } catch (err) {
+          handlers.onError?.(err)
+        }
+      }
+    }
+  } catch (err) {
+    if (!isAbort(err)) handlers.onError?.(err)
+  }
+}
+
+// ── Pronunciation diff (PIVOT_ROADMAP §B.8) ───────────
+
+export interface ScorePronunciationInput {
+  audio: Blob
+  referenceText: string
+  targetCefr?: string | null
+}
+
+export async function scorePronunciation(
+  input: ScorePronunciationInput,
+  opts: ApiOptions = {},
+): Promise<PronunciationScore> {
+  const form = new FormData()
+  const filename = input.audio.type.includes('webm')
+    ? 'learner.webm'
+    : input.audio.type.includes('ogg')
+    ? 'learner.ogg'
+    : 'learner.wav'
+  form.append('audio', input.audio, filename)
+  form.append('reference_text', input.referenceText)
+  if (input.targetCefr) form.append('target_cefr', input.targetCefr)
+  const response = await fetch(`${BASE}/conversation/pronounce`, {
+    method: 'POST',
+    body: form,
+    signal: opts.signal,
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new ApiError(
+      `${response.status} ${response.statusText}${text ? ` \u2014 ${text}` : ''}`,
+      response.status,
+    )
+  }
+  return (await response.json()) as PronunciationScore
+}
+
+// ── Capture (PIVOT_ROADMAP §B.6/§B.7/§B.18) ────────────
+
+export interface CaptureImageInput {
+  image: Blob
+  sessionId: string
+  surfaceKind?: CaptureSurfaceKind | string
+  targetCompetencyId?: string | null
+  targetCefr?: string | null
+  note?: string | null
+}
+
+export async function captureImage(
+  input: CaptureImageInput,
+  opts: ApiOptions = {},
+): Promise<CaptureResultPayload> {
+  const form = new FormData()
+  const filename = input.image.type.includes('webp')
+    ? 'frame.webp'
+    : input.image.type.includes('jpeg') || input.image.type.includes('jpg')
+    ? 'frame.jpg'
+    : 'frame.png'
+  form.append('image', input.image, filename)
+  form.append('session_id', input.sessionId)
+  if (input.surfaceKind) form.append('surface_kind', input.surfaceKind)
+  if (input.targetCompetencyId)
+    form.append('target_competency_id', input.targetCompetencyId)
+  if (input.targetCefr) form.append('target_cefr', input.targetCefr)
+  if (input.note) form.append('note', input.note)
+  const response = await fetch(`${BASE}/capture/image`, {
+    method: 'POST',
+    body: form,
+    signal: opts.signal,
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new ApiError(
+      `${response.status} ${response.statusText}${text ? ` \u2014 ${text}` : ''}`,
+      response.status,
+    )
+  }
+  return (await response.json()) as CaptureResultPayload
+}
+
+export const captureRecent = (
+  limit = 20,
+  opts?: ApiOptions,
+): Promise<CaptureRecentResponse> =>
+  request<CaptureRecentResponse>(`/capture/recent?limit=${limit}`, opts)
+
+/**
+ * Open a streaming POST to /agent/turn and yield typed MiraEvents.
+ *
+ * Cancel via `opts.signal`. The async iterator finishes naturally when
+ * the backend emits a `done` event OR when the connection closes.
+ *
+ * Errors raised before the first byte (HTTP 4xx/5xx) become an
+ * `{ kind: 'error' }` event followed by an `{ kind: 'done' }` so the
+ * consumer never has to special-case the connection-failure branch.
+ */
+export async function* streamAgentTurn(
+  payload: MiraTurnRequest,
+  opts: ApiOptions = {},
+): AsyncGenerator<MiraEvent, void, void> {
+  let response: Response
+  try {
+    response = await fetch(`${BASE}/agent/turn`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(payload),
+      signal: opts.signal,
+    })
+  } catch (err) {
+    if (isAbort(err)) return
+    yield {
+      kind: 'error',
+      data: { message: 'fetch_failed', detail: String(err) },
+    }
+    yield { kind: 'done', data: { reason: 'fetch_failed' } }
+    return
+  }
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '')
+    yield {
+      kind: 'error',
+      data: {
+        message: `http_${response.status}`,
+        detail: text || response.statusText,
+      },
+    }
+    yield { kind: 'done', data: { reason: `http_${response.status}` } }
+    return
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx: number
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        const evt = parseSseBlock(block)
+        if (evt) {
+          yield evt
+          if (evt.kind === 'done') {
+            try { await reader.cancel() } catch { /* noop */ }
+            return
+          }
+        }
+      }
+    }
+    if (buffer.trim().length > 0) {
+      const evt = parseSseBlock(buffer)
+      if (evt) yield evt
+    }
+  } catch (err) {
+    if (isAbort(err)) return
+    yield {
+      kind: 'error',
+      data: { message: 'stream_error', detail: String(err) },
+    }
+    yield { kind: 'done', data: { reason: 'stream_error' } }
+  }
+}
+
+function parseSseBlock(block: string): MiraEvent | null {
+  let eventName = 'message'
+  const dataLines: string[] = []
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) eventName = line.slice(6).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+  }
+  if (dataLines.length === 0) return null
+  const raw = dataLines.join('\n')
+  switch (eventName) {
+    case 'thought': {
+      let text = raw
+      try {
+        const obj = JSON.parse(raw)
+        if (typeof obj === 'string') text = obj
+      } catch { /* keep raw */ }
+      return { kind: 'thought', data: text }
+    }
+    case 'tool_intent':
+      try {
+        return { kind: 'tool_intent', data: JSON.parse(raw) as ToolIntent }
+      } catch (err) {
+        return { kind: 'error', data: { message: 'parse_tool_intent', detail: String(err) } }
+      }
+    case 'tool_result':
+      try {
+        return { kind: 'tool_result', data: JSON.parse(raw) as ToolResult }
+      } catch (err) {
+        return { kind: 'error', data: { message: 'parse_tool_result', detail: String(err) } }
+      }
+    case 'tool_error':
+      try {
+        return { kind: 'tool_error', data: JSON.parse(raw) as ToolError }
+      } catch {
+        return { kind: 'tool_error', data: { tool: 'unknown', code: 'parse', message: raw } }
+      }
+    case 'error':
+      try {
+        return { kind: 'error', data: JSON.parse(raw) }
+      } catch {
+        return { kind: 'error', data: { message: raw } }
+      }
+    case 'done':
+      try {
+        return { kind: 'done', data: JSON.parse(raw) }
+      } catch {
+        return { kind: 'done', data: {} }
+      }
+    default:
+      return null
   }
 }
 

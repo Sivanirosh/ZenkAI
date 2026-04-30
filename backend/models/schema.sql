@@ -99,3 +99,73 @@ CREATE TABLE IF NOT EXISTS vocab_queue (
     extra_tags         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vocab_queue_status ON vocab_queue(status);
+
+-- 2026-04-30: Mira agent (PIVOT_ROADMAP.md §6.1, §7).
+-- Four tables introduced together: the goal the learner is chasing, the
+-- competency taxonomy Mira reasons over, the per-competency Bayesian
+-- mastery state, and the immutable evidence ledger that drives mastery
+-- updates. Schema lives here so init_schema() picks it up at startup;
+-- the Python seeding lives in backend/mastery/competencies.py.
+
+CREATE TABLE IF NOT EXISTS goals (
+    id          VARCHAR PRIMARY KEY,
+    raw_text    TEXT NOT NULL,           -- learner's free-text answer to "why are you here?"
+    parsed      JSON,                    -- {domain, deadline, target_cefr, scenarios[]}
+    created_at  TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS competencies (
+    id          VARCHAR PRIMARY KEY,     -- 'medical.history.questions'
+    label       VARCHAR NOT NULL,
+    cefr        VARCHAR,                 -- 'A2', 'B1', 'B2', ...
+    domain      VARCHAR,                 -- 'medical', 'academic', 'daily', ...
+    parent_id   VARCHAR REFERENCES competencies(id)
+);
+
+-- Bayesian skill confidence per competency. mu/sigma name the Beta
+-- posterior internally; the API surfaces `confidence = round(mu * 100)`
+-- and `variance = round(sigma * 100)` as 0..100 ints for the UI.
+CREATE TABLE IF NOT EXISTS mastery (
+    competency_id   VARCHAR PRIMARY KEY REFERENCES competencies(id),
+    mu              FLOAT NOT NULL DEFAULT 0.5,   -- posterior mean, 0..1
+    sigma           FLOAT NOT NULL DEFAULT 0.25,  -- posterior std, 0..0.5
+    last_evidence   TIMESTAMP,
+    evidence_count  INTEGER NOT NULL DEFAULT 0
+);
+
+-- Append-only log of every quality observation feeding the mastery model.
+-- This is the source of truth; mastery rows are derivable by replaying
+-- the ledger. Source = 'conversation' | 'drill' | 'reader' | 'capture'
+-- | 'agent_pre' | 'agent_post' (whoever inserted the row).
+CREATE TABLE IF NOT EXISTS evidence (
+    id              VARCHAR PRIMARY KEY,
+    competency_id   VARCHAR REFERENCES competencies(id),
+    occurred_at     TIMESTAMP DEFAULT now(),
+    surface_form    VARCHAR,                       -- what the learner produced
+    quality         FLOAT NOT NULL,                -- 0..1 outcome
+    source          VARCHAR NOT NULL,
+    notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_competency
+    ON evidence(competency_id, occurred_at);
+
+-- 2026-04-30: Atlas planner (PIVOT_ROADMAP §6.1, deferred from A.7 first
+-- slice). The curriculum planner (Phase B.2) writes one row per generated
+-- plan; ``superseded_by`` lets us keep the full history as the goal /
+-- mastery shifts without ever rewriting old rows.
+CREATE TABLE IF NOT EXISTS atlas_plans (
+    id            VARCHAR PRIMARY KEY,
+    goal_id       VARCHAR REFERENCES goals(id),
+    horizon       VARCHAR,                       -- '30d' | '60d' | '90d'
+    plan          JSON NOT NULL,                 -- generated curriculum
+    created_at    TIMESTAMP DEFAULT now(),
+    superseded_by VARCHAR                        -- self-reference, no FK to allow forward writes
+);
+CREATE INDEX IF NOT EXISTS idx_atlas_plans_goal
+    ON atlas_plans(goal_id, created_at);
+
+-- 2026-04-30: review scheduler (PIVOT_ROADMAP §A.8). Phase A surfaces a
+-- posterior-driven `next_review_at` so the Atrium can sort competencies
+-- by what's due next without recomputing from mu/sigma every read.
+ALTER TABLE mastery ADD COLUMN IF NOT EXISTS next_review_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_mastery_next_review ON mastery(next_review_at);

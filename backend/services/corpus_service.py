@@ -302,6 +302,88 @@ def get_paragraph_neighbours(
     ]
 
 
+def next_paragraph(
+    *,
+    work_id: Optional[str] = None,
+    current_paragraph_id: Optional[str] = None,
+) -> Optional[Paragraph]:
+    """Return the next paragraph for the agent's ``recommend_text`` tool.
+
+    Selection rules (Phase A — intentionally trivial; Phase B replaces
+    this with a recall-driven recommender):
+
+    1. If ``current_paragraph_id`` is given and exists, return the
+       immediately following paragraph in the same work, ordered by
+       (chapter, position). If the current is the last paragraph,
+       return None — the agent will fall back to ``recommend_text`` with
+       a different work.
+    2. Otherwise, with ``work_id``, return that work's first paragraph.
+    3. Otherwise, return the first paragraph of the alphabetically-first
+       work in the corpus (deterministic for tests).
+    """
+    if current_paragraph_id is not None:
+        anchor = db.cursor().execute(
+            """
+            SELECT work_id, chapter, position
+            FROM paragraphs WHERE id = ?
+            """,
+            [current_paragraph_id],
+        ).fetchone()
+        if anchor is not None:
+            row = db.cursor().execute(
+                """
+                SELECT id, work_id, chapter, position, text, word_count
+                FROM paragraphs
+                WHERE work_id = ?
+                  AND (chapter > ? OR (chapter = ? AND position > ?))
+                ORDER BY chapter, position
+                LIMIT 1
+                """,
+                [anchor[0], anchor[1] or 0, anchor[1] or 0, anchor[2] or 0],
+            ).fetchone()
+            if row is not None:
+                return Paragraph(
+                    id=row[0],
+                    work_id=row[1],
+                    chapter=row[2] or 0,
+                    position=row[3] or 0,
+                    text=row[4],
+                    word_count=row[5] or 0,
+                )
+            return None  # end of work
+
+    if work_id is None:
+        first = db.cursor().execute(
+            """
+            SELECT id FROM works ORDER BY title LIMIT 1
+            """
+        ).fetchone()
+        if first is None:
+            return None
+        work_id = first[0]
+
+    row = db.cursor().execute(
+        """
+        SELECT id, work_id, chapter, position, text, word_count
+        FROM paragraphs
+        WHERE work_id = ?
+        ORDER BY chapter, position
+        LIMIT 1
+        """,
+        [work_id],
+    ).fetchone()
+    if row is None:
+        return None
+    return Paragraph(
+        id=row[0],
+        work_id=row[1],
+        chapter=row[2] or 0,
+        position=row[3] or 0,
+        text=row[4],
+        word_count=row[5] or 0,
+    )
+
+
 def list_paragraphs_for_chapter(work_id: str, chapter: int) -> list[Paragraph]:
     rows = db.cursor().execute(
         """

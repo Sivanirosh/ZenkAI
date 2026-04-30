@@ -59,11 +59,20 @@ def cursor() -> duckdb.DuckDBPyConnection:
 
 
 def init_schema(conn: Optional[duckdb.DuckDBPyConnection] = None) -> None:
-    """Apply `schema.sql` idempotently to the given (or default) connection."""
+    """Apply `schema.sql` idempotently and seed Mira's competency taxonomy."""
     target = conn if conn is not None else get_connection()
     sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     target.execute(sql)
     logger.info("Schema applied from %s", _SCHEMA_PATH)
+
+    # Idempotent post-schema seeding. Imported lazily to avoid a top-level
+    # import cycle (mastery.competencies imports `db`).
+    from backend.mastery import competencies as _competencies  # noqa: WPS433
+
+    try:
+        _competencies.seed_competencies(target)
+    except Exception as exc:  # pragma: no cover — best effort, never block startup
+        logger.warning("Competency seed skipped: %s", exc)
 
 
 def reset_for_tests() -> duckdb.DuckDBPyConnection:

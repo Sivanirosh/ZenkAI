@@ -26,7 +26,10 @@ class Settings(BaseSettings):
     )
 
     ollama_base_url: str = Field(default="http://localhost:11434")
-    ollama_model: str = Field(default="mistral-nemo:12b")
+    # Default to Gemma 4 e4b (the 4B-class edge variant) for local-first dev.
+    # Switch to gemma4:26b for richer reasoning on flagship hardware. The
+    # AiSettingsPanel lets the user pick any installed model at runtime.
+    ollama_model: str = Field(default="gemma4:e4b")
     ollama_embed_model: str = Field(default="nomic-embed-text")
 
     qdrant_path: Path = Field(default=PROJECT_ROOT / "data" / "qdrant_storage")
@@ -39,8 +42,12 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "data" / "piper_models" / "de_DE-thorsten-high.onnx"
     )
 
-    whisper_model_size: str = Field(default="medium")
-    whisper_device: str = Field(default="cpu")
+    # ``base`` (74 MB) is fast to download and decent for German short
+    # utterances; bump to ``small`` / ``medium`` for higher fidelity on a
+    # GPU or once the model has been pre-warmed.
+    whisper_model_size: str = Field(default="base")
+    # ``auto`` → CUDA if available, else CPU. Set to ``cpu`` to force CPU.
+    whisper_device: str = Field(default="auto")
 
     frontend_url: str = Field(default="http://localhost:3000")
     log_level: str = Field(default="INFO")

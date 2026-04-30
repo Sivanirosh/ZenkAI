@@ -8,6 +8,21 @@ mic gracefully.
 
 Accepted inputs: WAV, WebM, OGG — up to 10 MB. Transcription runs on the
 thread pool because faster-whisper's API is synchronous.
+
+STT chain order (PIVOT_ROADMAP §B.5, revisited 2026-04-30):
+
+The original B.5 design tried Gemma 4 audio multimodal first and used
+faster-whisper as the fallback. In practice the Gemma 4 builds shipped
+through Ollama today (e.g. ``gemma4:e4b``) have no audio encoder at all
+— Ollama silently drops the ``audio`` field, the model answers the bare
+text prompt, and politely refuses in German. That refusal then becomes
+the "user transcript" because nothing in the chain can tell a real STT
+output from a capability denial.
+
+We therefore reverse the priority by default: faster-whisper first
+(reliable, offline, cheap), Gemma audio only when explicitly opted in
+via ``LINGUAMATE_GEMMA_AUDIO=1`` — re-enable when Google ships an
+audio-capable Gemma 4 build through Ollama.
 """
 
 from __future__ import annotations
@@ -48,6 +63,7 @@ class STTResult:
     confidence: float
     language: str
     duration_s: float
+    engine: str = "whisper"
 
 
 _model_cache: object | None = None
@@ -67,8 +83,44 @@ def _ext_for_content_type(content_type: str) -> str:
     return mapping.get(ct, ".bin")
 
 
+def _detect_device(configured: str) -> str:
+    """Return the best available compute device.
+
+    If the config says ``cpu`` we respect it.  Otherwise we try CUDA
+    (via ``torch`` or ``ctranslate2``'s own CUDA check) and fall back to
+    ``cpu`` silently so a missing CUDA driver never crashes startup.
+    """
+    if configured.lower() == "cpu":
+        return "cpu"
+    # Try torch first (available in many ML envs); ctranslate2 can also tell us.
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            logger.info("CUDA available — using GPU for Whisper inference.")
+            return "cuda"
+    except ImportError:
+        pass
+    try:
+        import ctranslate2  # type: ignore
+        if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
+            logger.info("CUDA available (ctranslate2) — using GPU for Whisper.")
+            return "cuda"
+    except Exception:  # noqa: BLE001 — any failure means no CUDA
+        pass
+    logger.info(
+        "CUDA not available (configured device=%s); falling back to CPU.",
+        configured,
+    )
+    return "cpu"
+
+
 def _load_model() -> object:
-    """Lazy singleton loader for faster-whisper."""
+    """Lazy singleton loader for faster-whisper.
+
+    Device is resolved at first load: ``WHISPER_DEVICE=auto`` (or any
+    non-``cpu`` value) triggers CUDA auto-detection; ``cpu`` is used
+    unconditionally when explicitly set.
+    """
     global _model_cache
     if _model_cache is not None:
         return _model_cache
@@ -85,15 +137,18 @@ def _load_model() -> object:
         ) from exc
 
     settings = get_settings()
+    device = _detect_device(settings.whisper_device)
+    compute_type = "float16" if device == "cuda" else "int8"
     logger.info(
-        "Loading Whisper model size=%s device=%s",
+        "Loading Whisper model size=%s device=%s compute_type=%s",
         settings.whisper_model_size,
-        settings.whisper_device,
+        device,
+        compute_type,
     )
     _model_cache = WhisperModel(
         settings.whisper_model_size,
-        device=settings.whisper_device,
-        compute_type="int8",
+        device=device,
+        compute_type=compute_type,
     )
     return _model_cache
 
@@ -149,6 +204,7 @@ def _run_sync(path: str, language: Optional[str]) -> STTResult:
         confidence=round(confidence, 3),
         language=getattr(info, "language", "de") or "de",
         duration_s=float(getattr(info, "duration", 0.0) or 0.0),
+        engine="whisper",
     )
 
 
@@ -172,3 +228,103 @@ async def transcribe(
             os.unlink(tmp.name)
         except OSError:
             pass
+
+
+# ─── Gemma-4-audio-first STT (B.5) ──────────────────────────────────────
+
+
+async def _gemma_audio_transcribe(
+    audio_bytes: bytes,
+    content_type: str,
+    *,
+    language: str,
+) -> Optional[STTResult]:
+    """Try the active LLM provider's native audio-multimodal STT.
+
+    Returns ``None`` when the provider does not support audio input or
+    the call failed. We never raise — the caller falls back cleanly.
+    """
+    try:
+        from backend.llm import get_provider  # noqa: WPS433
+    except Exception:  # pragma: no cover — defensive
+        return None
+
+    provider = get_provider()
+    audio_fn = getattr(provider, "transcribe_audio", None)
+    if audio_fn is None:
+        return None
+
+    try:
+        text = await audio_fn(
+            audio_bytes,
+            content_type=content_type,
+            language=language,
+            timeout=20.0,
+        )
+    except Exception as exc:
+        logger.info("Gemma audio STT failed, falling back: %s", exc)
+        return None
+    if not text:
+        return None
+    cleaned = text.strip()
+    return STTResult(
+        transcript=cleaned,
+        confidence=0.85,
+        language=language,
+        duration_s=0.0,
+        engine="gemma_audio",
+    )
+
+
+def _gemma_audio_enabled() -> bool:
+    """Opt-in switch for the Gemma 4 audio-multimodal STT path.
+
+    Defaults to OFF because no public Gemma 4 build available through
+    Ollama today actually has an audio encoder — calling it just makes the
+    model politely refuse and that refusal then poisons the transcript
+    pipeline. Set ``LINGUAMATE_GEMMA_AUDIO=1`` once a real audio-capable
+    Gemma 4 variant is in your Ollama library.
+    """
+    raw = os.environ.get("LINGUAMATE_GEMMA_AUDIO", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+async def transcribe_with_fallback(
+    audio_bytes: bytes,
+    content_type: str,
+    *,
+    language: str = "de",
+) -> STTResult:
+    """STT chain (PIVOT_ROADMAP §B.5, revised default order):
+
+    1. ``faster-whisper`` (default — works offline, deterministic, cheap).
+    2. Gemma 4 audio-multimodal — only attempted when
+       ``LINGUAMATE_GEMMA_AUDIO=1`` AND Whisper is unavailable.
+    3. Empty-string stub with engine=``"unavailable"`` so the caller
+       can present a graceful "I didn't catch that" UI without raising.
+    """
+    _validate(audio_bytes, content_type)
+
+    try:
+        return await transcribe(audio_bytes, content_type, language=language)
+    except WhisperUnavailable as exc:
+        logger.info("Whisper unavailable: %s", exc.detail)
+    except ValueError as exc:
+        logger.info("Whisper rejected input: %s", exc)
+    except Exception as exc:  # pragma: no cover — last-resort safety net
+        logger.warning("Whisper crashed: %s", exc)
+
+    if _gemma_audio_enabled():
+        gemma = await _gemma_audio_transcribe(
+            audio_bytes, content_type, language=language
+        )
+        if gemma is not None:
+            return gemma
+
+    return STTResult(
+        transcript="",
+        confidence=0.0,
+        language=language,
+        duration_s=0.0,
+        engine="unavailable",
+    )

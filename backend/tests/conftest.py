@@ -1,9 +1,11 @@
-"""Shared pytest fixtures: in-memory DuckDB swapped for the singleton."""
+"""Shared pytest fixtures: in-memory DuckDB + isolated runtime/memory state."""
 
 from __future__ import annotations
 
 import pytest
 
+from backend.memory import manager as memory_manager
+from backend.memory import store_vector as vector_store
 from backend.models import db as db_module
 from backend.services import runtime_config
 
@@ -27,3 +29,15 @@ def _reset_runtime_config(tmp_path, monkeypatch):
     )
     yield
     runtime_config.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_memory(tmp_path):
+    """Point the MemoryManager singleton at a tmp dir so JSONL never leaks."""
+    memory_manager.reset_for_tests(root=tmp_path / "mira_memory")
+    # Reset vector index after memory; tests that need it fresh re-call
+    # ``vector_store.reset_for_tests(embedder=...)`` to inject a fake.
+    vector_store._INDEX = None  # noqa: SLF001
+    yield
+    memory_manager.reset_for_tests(root=tmp_path / "mira_memory")
+    vector_store._INDEX = None  # noqa: SLF001
