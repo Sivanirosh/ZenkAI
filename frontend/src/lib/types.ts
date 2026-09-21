@@ -41,7 +41,6 @@ export interface WordToken {
   pos: string | null
   case_label: string | null
   grammatical_role: string | null
-  familiarity: number
   char_start: number
   char_end: number
 }
@@ -59,16 +58,6 @@ export interface ParagraphWithTokens extends Paragraph {
   tokens: WordToken[]
 }
 
-export interface WordState {
-  word_id: string
-  familiarity: number
-  ease_factor: number
-  interval: number
-  next_review: string | null
-  seen_count: number
-  last_seen: string | null
-}
-
 export interface Word {
   id: string
   lemma: string
@@ -80,10 +69,6 @@ export interface Word {
   definition_en: string | null
 }
 
-export interface WordWithState extends Word {
-  state: WordState
-}
-
 export interface WordAnnotation {
   definition_de: string
   definition_en: string
@@ -91,14 +76,6 @@ export interface WordAnnotation {
   etymology: string | null
   related_words: string[]
   source: 'ollama' | 'mock'
-}
-
-export interface ProgressSummary {
-  total_words_tracked: number
-  known: number
-  learning: number
-  new: number
-  streak_days: number
 }
 
 export interface ChatTurn {

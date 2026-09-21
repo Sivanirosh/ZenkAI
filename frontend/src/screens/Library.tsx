@@ -26,11 +26,11 @@ export function Library() {
   const [openError, setOpenError] = useState<string | null>(null)
 
   const fetchLibrary = useCallback(async (signal: AbortSignal) => {
-    const [works, summary] = await Promise.all([
+    const [works, counts] = await Promise.all([
       api.listWorks({ signal }),
-      api.getProgress({ signal }),
+      api.vocabCounts({ signal }),
     ])
-    return { works, summary, fetchedAt: Date.now() }
+    return { works, counts, fetchedAt: Date.now() }
   }, [])
 
   const { data, loading, error, refresh } = useCachedResource({
@@ -41,7 +41,7 @@ export function Library() {
   })
 
   const works = data?.works ?? null
-  const summary = data?.summary ?? null
+  const counts = data?.counts ?? null
 
   const filtered = useMemo(() => {
     if (!works) return []
@@ -70,12 +70,10 @@ export function Library() {
     }
   }
 
-  const metrics = summary ?? {
+  const metrics = counts ?? {
+    queued: 0,
     known: 0,
-    learning: 0,
-    new: 0,
-    total_words_tracked: 0,
-    streak_days: 0,
+    exported: 0,
   }
   const activeBooks = works?.filter((w) => w.progress.total_words > 0).length ?? 0
   const fetchError = error ?? openError
@@ -119,7 +117,7 @@ export function Library() {
         <div className="metric-card">
           <div className="metric-label">Gelernte W{'\u00F6'}rter</div>
           <div className="metric-value">
-            {metrics.learning.toLocaleString('de-DE')}
+            {(metrics.queued + metrics.exported).toLocaleString('de-DE')}
           </div>
         </div>
         <div className="metric-card">

@@ -13,11 +13,11 @@ import type {
   ChatTurn,
   Paragraph,
   ParagraphWithTokens,
-  ProgressSummary,
   TabId,
+  VocabCounts,
   VocabStatus,
+  Word,
   WordAnnotation,
-  WordWithState,
   WorkWithProgress,
 } from '@/lib/types'
 
@@ -31,7 +31,7 @@ export interface SelectedWord {
 
 export interface LibraryCache {
   works: WorkWithProgress[]
-  summary: ProgressSummary
+  counts: VocabCounts
   fetchedAt: number
 }
 
@@ -48,8 +48,6 @@ interface SessionState {
   currentParagraphId: string | null
   epochFilter: string | null
   selectedWord: SelectedWord | null
-
-  wordFamiliarity: Record<string, number>
 
   // Vocab harvester status map (decision 0001). Absence = 'new'.
   vocabStatus: Record<string, VocabStatus>
@@ -68,7 +66,7 @@ interface SessionState {
   // page bundles in the Leseraum. Keyed by `${workId}:${chapter}`.
   chapterParagraphsCache: Record<string, Paragraph[]>
   paragraphCache: Record<string, ParagraphWithTokens>
-  wordCache: Record<string, WordWithState>
+  wordCache: Record<string, Word>
   annotationCache: Record<string, WordAnnotation>
 
   setTab: (tab: TabId) => void
@@ -77,8 +75,6 @@ interface SessionState {
   setEpochFilter: (epoch: string | null) => void
   openWord: (word: SelectedWord) => void
   clearSelectedWord: () => void
-  setWordFamiliarity: (wordId: string, familiarity: number) => void
-  bulkSetWordFamiliarity: (entries: Record<string, number>) => void
 
   setVocabStatus: (wordId: string, status: VocabStatus | null) => void
   bulkSetVocabStatus: (entries: Record<string, VocabStatus>) => void
@@ -98,7 +94,7 @@ interface SessionState {
     paragraphs: Paragraph[],
   ) => void
   cacheParagraph: (paragraph: ParagraphWithTokens) => void
-  cacheWord: (word: WordWithState) => void
+  cacheWord: (word: Word) => void
   cacheAnnotation: (key: string, annotation: WordAnnotation) => void
 }
 
@@ -126,7 +122,6 @@ export const useSession = create<SessionState>()(
       currentParagraphId: null,
       epochFilter: null,
       selectedWord: null,
-      wordFamiliarity: {},
       vocabStatus: {},
 
       lastParagraphByWork: {},
@@ -168,22 +163,6 @@ export const useSession = create<SessionState>()(
       setEpochFilter: (epoch) => set({ epochFilter: epoch }),
       openWord: (word) => set({ selectedWord: word, activeTab: 'wc' }),
       clearSelectedWord: () => set({ selectedWord: null }),
-
-      setWordFamiliarity: (wordId, familiarity) =>
-        set((state) => ({
-          wordFamiliarity: {
-            ...state.wordFamiliarity,
-            [wordId]: Math.max(state.wordFamiliarity[wordId] ?? 0, familiarity),
-          },
-        })),
-      bulkSetWordFamiliarity: (entries) =>
-        set((state) => {
-          const next = { ...state.wordFamiliarity }
-          for (const [id, fam] of Object.entries(entries)) {
-            next[id] = Math.max(next[id] ?? 0, fam)
-          }
-          return { wordFamiliarity: next }
-        }),
 
       setVocabStatus: (wordId, status) =>
         set((state) => {
@@ -274,7 +253,6 @@ export const useSession = create<SessionState>()(
         lastParagraphByWork: state.lastParagraphByWork,
         readerPrefs: state.readerPrefs,
         lastScrollByPage: state.lastScrollByPage,
-        wordFamiliarity: state.wordFamiliarity,
         vocabStatus: state.vocabStatus,
       }),
       migrate: (persisted: unknown, version: number) => {

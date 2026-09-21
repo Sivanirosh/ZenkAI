@@ -43,26 +43,6 @@ CREATE TABLE IF NOT EXISTS word_occurrences (
     grammatical_role VARCHAR
 );
 
-CREATE TABLE IF NOT EXISTS word_states (
-    word_id     VARCHAR PRIMARY KEY REFERENCES words(id),
-    familiarity INTEGER DEFAULT 0,
-    ease_factor FLOAT DEFAULT 2.5,
-    interval    INTEGER DEFAULT 1,
-    next_review TIMESTAMP,
-    seen_count  INTEGER DEFAULT 0,
-    last_seen   TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-    id                VARCHAR PRIMARY KEY,
-    work_id           VARCHAR REFERENCES works(id),
-    started_at        TIMESTAMP DEFAULT now(),
-    ended_at          TIMESTAMP,
-    paragraphs_read   INTEGER DEFAULT 0,
-    words_encountered INTEGER DEFAULT 0,
-    words_promoted    INTEGER DEFAULT 0
-);
-
 CREATE INDEX IF NOT EXISTS idx_paragraphs_work_chapter
     ON paragraphs(work_id, chapter, position);
 CREATE INDEX IF NOT EXISTS idx_occurrences_paragraph
@@ -71,8 +51,6 @@ CREATE INDEX IF NOT EXISTS idx_occurrences_word
     ON word_occurrences(word_id);
 
 -- Migrations (append below, never edit above). Each ALTER is idempotent.
--- Example:
--- ALTER TABLE words ADD COLUMN IF NOT EXISTS frequency_band INTEGER;
 
 -- 2026-04: per-word character offsets in paragraphs.text. These make the
 -- reader render with correct punctuation (paragraphs.text is the single
@@ -84,9 +62,9 @@ CREATE INDEX IF NOT EXISTS idx_occurrences_paragraph_start
     ON word_occurrences(paragraph_id, char_start);
 
 -- 2026-04: vocabulary harvester. External SRS owns scheduling (decision
--- 0001), so word_states SRS columns (ease_factor, interval, next_review,
--- seen_count) are deprecated and preserved for one migration cycle.
--- vocab_queue is the new authoritative state for the reader UI.
+-- 0001); vocab_queue is the authoritative learner state. The word_states
+-- SRS table was dropped from the schema once its last reader moved to
+-- vocab_queue (existing databases keep a stale copy, harmlessly).
 CREATE TABLE IF NOT EXISTS vocab_queue (
     word_id            VARCHAR PRIMARY KEY REFERENCES words(id),
     status             VARCHAR NOT NULL,            -- 'queued' | 'known' | 'exported'

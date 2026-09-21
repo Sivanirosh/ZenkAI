@@ -44,7 +44,7 @@ class Chapter(BaseModel):
 
 
 class WordToken(BaseModel):
-    """One word token rendered in the reader, plus learner state.
+    """One word token rendered in the reader.
 
     The reader slices ``paragraph.text[char_start:char_end]`` to produce the
     clickable surface. Inter-token characters (punctuation, whitespace) are
@@ -58,7 +58,6 @@ class WordToken(BaseModel):
     pos: Optional[str] = None
     case_label: Optional[str] = None
     grammatical_role: Optional[str] = None
-    familiarity: int = 0
     char_start: int
     char_end: int
 
@@ -82,7 +81,7 @@ class ParagraphBatchRequest(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=32)
 
 
-# ─── Vocabulary / SRS ─────────────────────────────────────────────────────
+# ─── Words (dictionary rows served to the Wortkarte) ─────────────────────
 
 
 class Word(BaseModel):
@@ -96,43 +95,7 @@ class Word(BaseModel):
     definition_en: Optional[str] = None
 
 
-class WordState(BaseModel):
-    word_id: str
-    familiarity: int = 0
-    ease_factor: float = 2.5
-    interval: int = 1
-    next_review: Optional[datetime] = None
-    seen_count: int = 0
-    last_seen: Optional[datetime] = None
 
-
-class WordWithState(Word):
-    state: WordState
-
-
-class ReviewRequest(BaseModel):
-    quality: int = Field(ge=0, le=5)
-
-
-class ReviewCard(BaseModel):
-    word_id: str
-    lemma: str
-    paragraph_text: str
-    blanked_text: str
-    grammatical_role: Optional[str] = None
-    first_letter: Optional[str] = None
-    answer: str
-
-
-class ProgressSummary(BaseModel):
-    total_words_tracked: int
-    known: int
-    learning: int
-    new: int
-    streak_days: int = 0
-
-
-# ─── Vocabulary harvester (decision 0001) ────────────────────────────────
 
 
 VocabStatus = Literal["queued", "known", "exported"]

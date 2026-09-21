@@ -105,7 +105,6 @@ _OCCURRENCE_COLUMNS = """
     o.paragraph_id,
     o.surface_form, o.word_id, w.lemma, w.pos,
     o.case_label, o.grammatical_role,
-    COALESCE(s.familiarity, 0) AS familiarity,
     o.char_start, o.char_end
 """
 
@@ -119,14 +118,13 @@ def _row_to_token(row) -> WordToken:
         pos=row[4],
         case_label=row[5],
         grammatical_role=row[6],
-        familiarity=int(row[7] or 0),
-        char_start=int(row[8] or 0),
-        char_end=int(row[9] or 0),
+        char_start=int(row[7] or 0),
+        char_end=int(row[8] or 0),
     )
 
 
 def get_paragraph_with_tokens(paragraph_id: str) -> Optional[ParagraphWithTokens]:
-    """Return a paragraph with per-token familiarity state."""
+    """Return a paragraph with its word tokens."""
     para_row = db.cursor().execute(
         """
         SELECT id, work_id, chapter, position, text, word_count
@@ -142,7 +140,6 @@ def get_paragraph_with_tokens(paragraph_id: str) -> Optional[ParagraphWithTokens
         SELECT {_OCCURRENCE_COLUMNS}
         FROM word_occurrences o
         LEFT JOIN words w ON w.id = o.word_id
-        LEFT JOIN word_states s ON s.word_id = o.word_id
         WHERE o.paragraph_id = ?
         ORDER BY o.char_start
         """,
@@ -168,8 +165,7 @@ def get_paragraphs_with_tokens(
     """Batch variant of :func:`get_paragraph_with_tokens`.
 
     Two DB round-trips regardless of ``len(paragraph_ids)``: one for the
-    paragraph rows, one for every occurrence joined against ``words`` and
-    ``word_states``. Results preserve the caller's id order; unknown ids
+    paragraph rows, one for every occurrence joined against ``words``. Results preserve the caller's id order; unknown ids
     are silently absent (the router is responsible for 404-ing on misses
     so batch semantics stay deterministic).
     """
@@ -195,7 +191,6 @@ def get_paragraphs_with_tokens(
         SELECT {_OCCURRENCE_COLUMNS}
         FROM word_occurrences o
         LEFT JOIN words w ON w.id = o.word_id
-        LEFT JOIN word_states s ON s.word_id = o.word_id
         WHERE o.paragraph_id IN ({placeholders})
         ORDER BY o.paragraph_id, o.char_start
         """,
@@ -326,17 +321,17 @@ def list_paragraphs_for_chapter(work_id: str, chapter: int) -> list[Paragraph]:
 
 
 def get_work_progress(work_id: str) -> WorkProgress:
-    """Aggregate familiarity over all word occurrences in this work."""
+    """Aggregate vocab harvester status over all word occurrences in this work."""
     row = db.cursor().execute(
         """
         SELECT
             COUNT(*) AS total,
-            SUM(CASE WHEN COALESCE(s.familiarity, 0) >= 4 THEN 1 ELSE 0 END) AS known,
-            SUM(CASE WHEN COALESCE(s.familiarity, 0) BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS learning,
-            SUM(CASE WHEN COALESCE(s.familiarity, 0) = 0 THEN 1 ELSE 0 END) AS new_w
+            SUM(CASE WHEN v.status = 'known' THEN 1 ELSE 0 END) AS known,
+            SUM(CASE WHEN v.status IN ('queued', 'exported') THEN 1 ELSE 0 END) AS learning,
+            SUM(CASE WHEN v.word_id IS NULL THEN 1 ELSE 0 END) AS new_w
         FROM word_occurrences o
         JOIN paragraphs p ON p.id = o.paragraph_id
-        LEFT JOIN word_states s ON s.word_id = o.word_id
+        LEFT JOIN vocab_queue v ON v.word_id = o.word_id
         WHERE p.work_id = ?
         """,
         [work_id],

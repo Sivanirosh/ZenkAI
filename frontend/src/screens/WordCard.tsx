@@ -7,7 +7,7 @@
 
 import { useCallback, useMemo } from 'react'
 import * as api from '@/lib/api'
-import type { WordAnnotation, WordWithState } from '@/lib/types'
+import type { Word, WordAnnotation } from '@/lib/types'
 import { GrammarPill } from '@/components/GrammarPill'
 import { useSession } from '@/store/session'
 import { useVocab } from '@/hooks/useVocab'
@@ -15,7 +15,7 @@ import { useCachedResource } from '@/hooks/useCachedResource'
 
 interface WordPayload {
   annotation: WordAnnotation
-  record: WordWithState | null
+  record: Word | null
 }
 
 export function WordCard() {

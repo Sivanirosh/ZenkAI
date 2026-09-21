@@ -1,7 +1,5 @@
-// Vocabulary harvester hook — the reader's state handle post-decision 0001.
-//
-// Replaces `useWordState` for reader interactions. The old hook is kept for
-// the informational Word Card only (read-only familiarity display).
+// Vocabulary harvester hook — the reader's state handle (decision 0001:
+// external SRS owns scheduling; vocab_queue is authoritative).
 
 'use client'
 

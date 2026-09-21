@@ -6,16 +6,14 @@ import type {
   ChatRequest,
   Paragraph,
   ParagraphWithTokens,
-  ProgressSummary,
   ServiceUnavailable,
   SttResponse,
   VocabCounts,
   VocabEntry,
   VocabStatus,
   VocabStatusMap,
+  Word,
   WordAnnotation,
-  WordState,
-  WordWithState,
   WorkWithProgress,
 } from './types'
 
@@ -117,7 +115,7 @@ export const getParagraph = (
   )
 
 // Must match ParagraphBatchRequest.ids max_length on the backend.
-export const PARAGRAPH_BATCH_LIMIT = 32
+const PARAGRAPH_BATCH_LIMIT = 32
 
 export const getParagraphs = (
   ids: string[],
@@ -138,51 +136,10 @@ export const getParagraphs = (
   })
 }
 
-// ── Words (legacy SRS — deprecated, see decision 0001) ─────────
+// ── Words (dictionary rows for the Wortkarte) ──────────
 
-export const getWord = (
-  wordId: string,
-  opts?: ApiOptions,
-): Promise<WordWithState> =>
-  request<WordWithState>(`/words/${encodeURIComponent(wordId)}`, opts)
-
-/** @deprecated External SRS owns scheduling. Use vocab APIs. */
-export const markSeen = (wordId: string): Promise<WordState> =>
-  request<WordState>(`/words/${encodeURIComponent(wordId)}/seen`, {
-    method: 'POST',
-  })
-
-/** @deprecated External SRS owns scheduling. Use vocab APIs. */
-export const markOpened = (wordId: string): Promise<WordState> =>
-  request<WordState>(`/words/${encodeURIComponent(wordId)}/opened`, {
-    method: 'POST',
-  })
-
-/** @deprecated External SRS owns scheduling. Use vocab APIs. */
-export const markReviewed = (
-  wordId: string,
-  quality: number,
-): Promise<WordState> =>
-  request<WordState>(`/words/${encodeURIComponent(wordId)}/reviewed`, {
-    method: 'POST',
-    body: JSON.stringify({ quality }),
-  })
-
-/** @deprecated External SRS owns scheduling. Use `vocabMarkKnown`. */
-export const markKnown = (wordId: string): Promise<WordState> =>
-  request<WordState>(`/words/${encodeURIComponent(wordId)}/known`, {
-    method: 'POST',
-  })
-
-/** @deprecated External SRS owns scheduling. */
-export const getReviewQueue = (
-  limit = 20,
-  opts?: ApiOptions,
-): Promise<WordState[]> =>
-  request<WordState[]>(`/words/queue/review?limit=${limit}`, opts)
-
-export const getProgress = (opts?: ApiOptions): Promise<ProgressSummary> =>
-  request<ProgressSummary>('/words/progress', opts)
+export const getWord = (wordId: string, opts?: ApiOptions): Promise<Word> =>
+  request<Word>(`/words/${encodeURIComponent(wordId)}`, opts)
 
 // ── Vocabulary harvester ───────────────────────────────
 

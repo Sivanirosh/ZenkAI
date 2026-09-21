@@ -1,4 +1,4 @@
-"""Annotation endpoints: word annotation (LLM or mock) and grammar stub."""
+"""Annotation endpoint: word annotation (LLM or mock)."""
 
 from __future__ import annotations
 
@@ -20,8 +20,3 @@ async def annotate_word(req: WordAnnotationRequest) -> WordAnnotation:
         grammatical_role=req.grammatical_role,
         case_label=req.case_label,
     )
-
-
-@router.post("/grammar")
-async def grammar_breakdown() -> dict:
-    raise HTTPException(status_code=501, detail="Grammar breakdown lands in Phase 4")

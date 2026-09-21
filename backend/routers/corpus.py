@@ -9,8 +9,6 @@ from backend.models.pydantic_models import (
     Paragraph,
     ParagraphBatchRequest,
     ParagraphWithTokens,
-    Work,
-    WorkProgress,
     WorkWithProgress,
 )
 from backend.services import corpus_service
@@ -23,26 +21,11 @@ def list_works() -> list[WorkWithProgress]:
     return corpus_service.list_works()
 
 
-@router.get("/works/{work_id}", response_model=Work)
-def get_work(work_id: str) -> Work:
-    work = corpus_service.get_work(work_id)
-    if work is None:
-        raise HTTPException(status_code=404, detail=f"Work '{work_id}' not found")
-    return work
-
-
 @router.get("/works/{work_id}/chapters", response_model=list[Chapter])
 def list_chapters(work_id: str) -> list[Chapter]:
     if corpus_service.get_work(work_id) is None:
         raise HTTPException(status_code=404, detail=f"Work '{work_id}' not found")
     return corpus_service.list_chapters(work_id)
-
-
-@router.get("/works/{work_id}/progress", response_model=WorkProgress)
-def work_progress(work_id: str) -> WorkProgress:
-    if corpus_service.get_work(work_id) is None:
-        raise HTTPException(status_code=404, detail=f"Work '{work_id}' not found")
-    return corpus_service.get_work_progress(work_id)
 
 
 @router.get(

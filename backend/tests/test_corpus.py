@@ -140,7 +140,7 @@ def test_list_chapters_orders_by_chapter_number():
     assert chapters[1].paragraph_count == 1
 
 
-def test_get_paragraph_with_tokens_returns_familiarity():
+def test_get_paragraph_with_tokens_returns_tokens():
     conn = db.get_connection()
     wid = _seed_work(conn)
     text = "Gregor verwandelt sich."
@@ -148,17 +148,13 @@ def test_get_paragraph_with_tokens_returns_familiarity():
         conn, wid, 1, 0, text,
         [("gregor", "Gregor"), ("verwandeln", "verwandelt")],
     )
-    conn.execute(
-        "INSERT INTO word_states (word_id, familiarity) VALUES ('gregor', 4)"
-    )
 
     paragraph = corpus_service.get_paragraph_with_tokens(pid)
 
     assert paragraph is not None
     assert paragraph.id == pid
     assert len(paragraph.tokens) == 2
-    familiarities = {t.lemma: t.familiarity for t in paragraph.tokens}
-    assert familiarities == {"gregor": 4, "verwandeln": 0}
+    assert {t.lemma for t in paragraph.tokens} == {"gregor", "verwandeln"}
     # Tokens come back in reading order (char_start ascending).
     assert [t.surface_form for t in paragraph.tokens] == ["Gregor", "verwandelt"]
 
@@ -171,8 +167,12 @@ def test_get_work_progress_percentages():
         _seed_word(conn, lemma, lemma)
         _seed_occurrence(conn, pid, lemma, lemma, idx)
 
-    conn.execute("INSERT INTO word_states (word_id, familiarity) VALUES ('wort_a', 4)")
-    conn.execute("INSERT INTO word_states (word_id, familiarity) VALUES ('wort_b', 2)")
+    conn.execute(
+        "INSERT INTO vocab_queue (word_id, status) VALUES ('wort_a', 'known')"
+    )
+    conn.execute(
+        "INSERT INTO vocab_queue (word_id, status) VALUES ('wort_b', 'queued')"
+    )
 
     progress = corpus_service.get_work_progress(wid)
 
