@@ -1,4 +1,4 @@
-"""DuckDB connection management for Lesekamerad.
+"""DuckDB connection management for ZenkAI.
 
 FastAPI dispatches sync endpoints on a threadpool, so multiple requests may
 hit the database concurrently. A bare `DuckDBPyConnection` is NOT safe to

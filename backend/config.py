@@ -1,4 +1,4 @@
-"""Environment-driven settings for the Lesekamerad backend.
+"""Environment-driven settings for the ZenkAI backend.
 
 All configuration comes from environment variables (or a `.env` file at the
 project root). No file path should be hardcoded outside this module.
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     ollama_embed_model: str = Field(default="nomic-embed-text")
 
     qdrant_path: Path = Field(default=PROJECT_ROOT / "data" / "qdrant_storage")
-    qdrant_collection: str = Field(default="lesekamerad_paragraphs")
+    qdrant_collection: str = Field(default="zenkai_paragraphs")
 
     duckdb_path: Path = Field(default=PROJECT_ROOT / "data" / "corpus.duckdb")
 

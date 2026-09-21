@@ -1,4 +1,4 @@
--- Lesekamerad DuckDB schema (source of truth).
+-- ZenkAI DuckDB schema (source of truth).
 -- Migrations are append-only ALTER TABLE statements at the bottom of this file.
 
 CREATE TABLE IF NOT EXISTS works (

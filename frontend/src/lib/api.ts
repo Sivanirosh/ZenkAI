@@ -268,7 +268,7 @@ export async function vocabExport(): Promise<boolean> {
   const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
   const filename =
     match?.[1]?.trim() ||
-    `linguamate-vocab-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
+    `zenkai-vocab-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

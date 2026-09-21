@@ -1,1 +1,1 @@
-"""Database and shared data models for Lesekamerad."""
+"""Database and shared data models for ZenkAI."""

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command dev launcher for LinguaMate.
+# One-command dev launcher for ZenkAI.
 #
 # Starts the FastAPI backend and the Next.js frontend side-by-side,
 # streams both logs into this terminal with `[api]` / `[web]` prefixes,

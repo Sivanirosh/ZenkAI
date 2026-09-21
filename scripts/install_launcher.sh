@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a desktop entry for LinguaMate so it can be launched from
+# Install a desktop entry for ZenkAI so it can be launched from
 # the applications menu / dock like any other app.
 #
 # Re-run this script if you move the repo to a different path.
@@ -9,7 +9,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEV_SCRIPT="$REPO_ROOT/scripts/dev.sh"
 APPS_DIR="$HOME/.local/share/applications"
-DESKTOP_FILE="$APPS_DIR/linguamate.desktop"
+DESKTOP_FILE="$APPS_DIR/zenkai.desktop"
 
 if [ ! -x "$DEV_SCRIPT" ]; then
   echo "Error: $DEV_SCRIPT is not executable." >&2
@@ -21,7 +21,7 @@ fi
 # has something nicer than the generic cog. Written on every install so
 # the source of truth stays in one place.
 ICON_DIR="$REPO_ROOT/assets"
-ICON_PATH="$ICON_DIR/linguamate.svg"
+ICON_PATH="$ICON_DIR/zenkai.svg"
 mkdir -p "$ICON_DIR"
 cat > "$ICON_PATH" <<'SVG'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -52,9 +52,9 @@ cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=LinguaMate
+Name=ZenkAI
 GenericName=German reader dev server
-Comment=Start the LinguaMate backend + frontend and open the reader
+Comment=Start the ZenkAI backend + frontend and open the reader
 Exec=$DEV_SCRIPT
 Path=$REPO_ROOT
 Icon=$ICON_PATH
@@ -73,5 +73,5 @@ fi
 echo "Installed launcher:"
 echo "  $DESKTOP_FILE"
 echo
-echo "You can now find 'LinguaMate' in your application menu / search."
+echo "You can now find 'ZenkAI' in your application menu / search."
 echo "To remove:  rm '$DESKTOP_FILE'"

@@ -130,7 +130,7 @@ def export_csv() -> FileResponse:
     """
     tmp_dir = Path(tempfile.mkdtemp(prefix="vocab-export-"))
     out_path = tmp_dir / (
-        f"linguamate-vocab-{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.csv"
+        f"zenkai-vocab-{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.csv"
     )
     written = vocab_service.export_to_csv(out_path)
     if written == 0:

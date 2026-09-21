@@ -1,5 +1,5 @@
 [project]
-name = "lesekamerad"
+name = "zenkai"
 version = "0.1.0"
 description = "AI-assisted classical German literature reader with voice, inline annotation, spaced-repetition vocabulary, and literary context."
 readme = "CLAUDE.md"
