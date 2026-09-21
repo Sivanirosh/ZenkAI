@@ -43,7 +43,6 @@ async function request<T>(
   path: string,
   init: RequestInit & ApiOptions = {},
 ): Promise<T> {
-  const method = (init.method ?? 'GET').toUpperCase()
   const doFetch = () =>
     fetch(`${BASE}${path}`, {
       headers: {
@@ -53,20 +52,7 @@ async function request<T>(
       ...init,
     })
 
-  let response: Response
-  try {
-    response = await doFetch()
-  } catch (err) {
-    // `TypeError: Failed to fetch` surfaces when a pooled keep-alive
-    // connection in the Next.js dev rewrite layer was already closed by
-    // uvicorn. For idempotent GETs we retry once with a fresh socket.
-    if (isAbort(err)) throw err
-    if (method === 'GET' && err instanceof TypeError) {
-      response = await doFetch()
-    } else {
-      throw err
-    }
-  }
+  const response = await doFetch()
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')

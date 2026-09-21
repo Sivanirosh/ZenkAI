@@ -68,25 +68,6 @@ Antworte NUR als JSON ohne Markdown-Formatierung:
 """.strip()
 
 
-# 2025-04-21 — initial prompt for sentence-level grammar analysis.
-GRAMMAR_PROMPT = """
-Analysiere diesen deutschen Satz für einen B1-Lernenden:
-
-SATZ: „{sentence}"
-
-Gib die Analyse als JSON zurück:
-{{
-  "subject": "...",
-  "verb": "...",
-  "objects": ["..."],
-  "subordinate_clauses": ["..."],
-  "tense": "...",
-  "mood": "Indikativ / Konjunktiv / Imperativ",
-  "gloss_en": "short English paraphrase"
-}}
-""".strip()
-
-
 # ─── Ollama client ────────────────────────────────────────────────────────
 
 
@@ -258,7 +239,7 @@ def _build_qa_prompt(
         paragraph = corpus_service.get_paragraph(paragraph_id)
         if paragraph is not None:
             passage = paragraph.text
-            neighbours = rag_service.retrieve(paragraph_id, top_k=5)
+            neighbours = corpus_service.get_paragraph_neighbours(paragraph_id, window=2)
             rag_context = rag_service.format_context(
                 [n for n in neighbours if n.id != paragraph_id],
                 anchor_id=paragraph_id,

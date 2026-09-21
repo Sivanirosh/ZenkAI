@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -60,11 +59,8 @@ async def update_ollama_options(payload: LlmOptionsPayload) -> dict:
         raise HTTPException(status_code=400, detail="model must not be empty")
 
     if payload.model is not None:
-        try:
-            models = await _installed_models()
-        except httpx.HTTPError as exc:
-            logger.warning("Ollama unreachable while validating model: %s", exc)
-            models = None
+        probe = await llm_service.probe_ollama()
+        models = probe.get("models") if probe.get("reachable") else None
         if models is not None and payload.model not in models:
             raise HTTPException(
                 status_code=400,
@@ -81,13 +77,3 @@ async def update_ollama_options(payload: LlmOptionsPayload) -> dict:
     )
     logger.info("LLM options updated: %s", _serialise(updated))
     return {"options": _serialise(updated)}
-
-
-async def _installed_models() -> list[str]:
-    settings = get_settings()
-    url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-    return [m.get("name") for m in data.get("models", []) if m.get("name")]

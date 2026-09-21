@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -21,45 +20,6 @@ def _patch_ollama(monkeypatch, *, reachable=True, models=None, error=None):
         }
 
     monkeypatch.setattr("backend.routers.admin.llm_service.probe_ollama", _fake_probe)
-
-
-class _FakeResponse:
-    def __init__(self, payload: dict, status: int = 200) -> None:
-        self._payload = payload
-        self._status = status
-
-    def json(self) -> dict:
-        return self._payload
-
-    def raise_for_status(self) -> None:
-        if self._status >= 400:
-            raise httpx.HTTPStatusError(
-                "boom",
-                request=httpx.Request("GET", "http://x"),
-                response=httpx.Response(self._status),
-            )
-
-
-class _FakeHttpxClient:
-    def __init__(self, response: _FakeResponse) -> None:
-        self._response = response
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
-
-    async def get(self, _url):
-        return self._response
-
-
-def _install_fake_httpx(monkeypatch, models: list[str]) -> None:
-    payload = {"models": [{"name": m} for m in models]}
-    monkeypatch.setattr(
-        "backend.routers.admin.httpx.AsyncClient",
-        lambda *a, **kw: _FakeHttpxClient(_FakeResponse(payload)),
-    )
 
 
 def test_get_ollama_status_returns_options_and_probe(monkeypatch):
@@ -83,7 +43,6 @@ def test_get_ollama_status_returns_options_and_probe(monkeypatch):
 def test_put_ollama_updates_runtime_options(monkeypatch):
     set_llm_options(model="qwen3.5:latest", think=False, temperature=0.3)
     _patch_ollama(monkeypatch, reachable=True, models=["qwen3.5:latest", "llama3:8b"])
-    _install_fake_httpx(monkeypatch, ["qwen3.5:latest", "llama3:8b"])
 
     client = TestClient(create_app())
     res = client.put(
@@ -106,7 +65,6 @@ def test_put_ollama_updates_runtime_options(monkeypatch):
 def test_put_ollama_rejects_unknown_model(monkeypatch):
     set_llm_options(model="qwen3.5:latest")
     _patch_ollama(monkeypatch, reachable=True, models=["qwen3.5:latest"])
-    _install_fake_httpx(monkeypatch, ["qwen3.5:latest"])
 
     client = TestClient(create_app())
     res = client.put(
@@ -122,7 +80,6 @@ def test_put_ollama_rejects_unknown_model(monkeypatch):
 def test_put_ollama_clamps_temperature(monkeypatch):
     set_llm_options(model="qwen3.5:latest")
     _patch_ollama(monkeypatch, reachable=True, models=["qwen3.5:latest"])
-    _install_fake_httpx(monkeypatch, ["qwen3.5:latest"])
 
     client = TestClient(create_app())
     res = client.put("/api/v1/admin/ollama", json={"temperature": 5.0})

@@ -49,11 +49,13 @@ def fake_piper(monkeypatch, tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_synthesise_wraps_pcm_with_wav_header(monkeypatch, fake_piper):
-    pcm = b"\x01\x02\x03\x04" * 32
+async def test_synthesise_streams_piper_wav(monkeypatch, fake_piper):
+    wav = b"RIFF\x00\x00\x00\x00WAVEfmt " + b"\x01\x02" * 32
+    seen_args: list = []
 
     async def fake_exec(*args, **kwargs):  # noqa: ARG001
-        return _FakeProc(pcm, returncode=0)
+        seen_args.append(args)
+        return _FakeProc(wav, returncode=0)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 
@@ -61,10 +63,9 @@ async def test_synthesise_wraps_pcm_with_wav_header(monkeypatch, fake_piper):
     async for chunk in tts_service.synthesise("Hallo", speed=1.0):
         chunks.append(chunk)
 
-    wav = b"".join(chunks)
-    assert wav.startswith(b"RIFF")
-    assert b"WAVE" in wav[:12]
-    assert wav.endswith(pcm)
+    assert b"".join(chunks) == wav
+    # Piper writes a complete WAV itself — no raw-PCM mode, no header wrapping.
+    assert "--output_raw" not in seen_args[0]
 
 
 @pytest.mark.asyncio

@@ -67,16 +67,6 @@ def test_neighbours_never_crosses_work_boundary():
     assert window[0].work_id == "home"
 
 
-def test_retrieve_delegates_to_structural_window():
-    conn = db.get_connection()
-    w = _seed_work(conn, "w3")
-    ids = [_seed_paragraph(conn, w, 1, i, f"p{i}") for i in range(5)]
-
-    window = rag_service.retrieve(ids[2], top_k=5)
-
-    assert [p.id for p in window] == ids
-
-
 def test_format_context_marks_anchor():
     conn = db.get_connection()
     w = _seed_work(conn, "w4")
@@ -89,7 +79,3 @@ def test_format_context_marks_anchor():
     assert ">>>" in text
     assert "alpha" in text
     assert "beta" in text
-
-
-def test_retrieve_missing_anchor_returns_empty():
-    assert rag_service.retrieve("does_not_exist") == []

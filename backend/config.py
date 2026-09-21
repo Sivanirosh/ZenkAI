@@ -27,10 +27,6 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = Field(default="http://localhost:11434")
     ollama_model: str = Field(default="mistral-nemo:12b")
-    ollama_embed_model: str = Field(default="nomic-embed-text")
-
-    qdrant_path: Path = Field(default=PROJECT_ROOT / "data" / "qdrant_storage")
-    qdrant_collection: str = Field(default="zenkai_paragraphs")
 
     duckdb_path: Path = Field(default=PROJECT_ROOT / "data" / "corpus.duckdb")
 
