@@ -1,22 +1,25 @@
 """FastAPI entry point for ZenkAI.
 
-Wires routers under `/api/v1`, configures CORS for the Next.js frontend,
-and initialises the DuckDB schema on startup.
+Wires routers under `/api/v1` and serves the static single-page frontend
+from `static/` on the same origin.
 """
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.config import get_settings
 from backend.models import db
 from backend.routers import admin, annotations, chat, corpus, vocab, voice, words
 from backend.services import llm_service, stt_service, tts_service
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
 @asynccontextmanager
@@ -63,20 +66,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    settings = get_settings()
+    get_settings()
     app = FastAPI(
         title="ZenkAI API",
         version="0.1.0",
         description="Backend for the ZenkAI AI-assisted German reader.",
         lifespan=lifespan,
-    )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[settings.frontend_url, "http://localhost:3000"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
     )
 
     prefix = "/api/v1"
@@ -95,6 +90,8 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
     return app
 

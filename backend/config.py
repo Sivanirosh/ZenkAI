@@ -38,7 +38,6 @@ class Settings(BaseSettings):
     whisper_model_size: str = Field(default="medium")
     whisper_device: str = Field(default="cpu")
 
-    frontend_url: str = Field(default="http://localhost:3000")
     log_level: str = Field(default="INFO")
 
 

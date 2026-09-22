@@ -2,17 +2,14 @@
 # Run the ZenkAI FastAPI backend with dev-friendly defaults.
 #
 # Why the extra flags:
-#   --timeout-keep-alive 120
-#       Uvicorn's default of 5 s closes idle HTTP keep-alive sockets before
-#       the Next.js dev rewrite (undici) releases them from its pool. The
-#       next reused socket then dies with ECONNRESET and the browser shows
-#       "TypeError: Failed to fetch". 120 s is comfortably larger than
-#       undici's default 4 s keep-alive.
-#
 #   --reload-exclude 'data/*'
-#       The DuckDB file lives under data/ and is written every time a user
-#       marks a word seen/opened. Without the exclusion, uvicorn's watcher
-#       respawns the server mid-request, producing the same symptom.
+#       The DuckDB file lives under data/ and is written on every vocab
+#       action. Without the exclusion, uvicorn's watcher respawns the
+#       server mid-request.
+#
+#   --timeout-keep-alive 120
+#       Long-lived browser connections survive idle page reading without
+#       socket resets on the next fetch.
 
 set -euo pipefail
 
@@ -26,7 +23,6 @@ exec uvicorn backend.main:app \
   --port "$PORT" \
   --reload \
   --reload-exclude 'data/*' \
-  --reload-exclude 'frontend/*' \
   --reload-exclude '*.duckdb*' \
   --timeout-keep-alive 120 \
   "$@"

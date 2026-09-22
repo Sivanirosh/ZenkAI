@@ -61,7 +61,7 @@ Icon=$ICON_PATH
 Terminal=true
 Categories=Education;
 StartupNotify=true
-Keywords=german;reader;nextjs;fastapi;ollama;
+Keywords=german;reader;fastapi;ollama;
 EOF
 
 chmod 644 "$DESKTOP_FILE"

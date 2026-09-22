@@ -9,11 +9,6 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Node / Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/next-env.d.ts
 
 # Data (runtime-generated; vendored resources are excepted below)
 data/*
